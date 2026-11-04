@@ -1,0 +1,21 @@
+# Android / Gradle
+*.iml
+.gradle/
+local.properties
+.idea/
+build/
+app/build/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# Keys and secrets — never commit
+*.env
+**/*key*.json
+**/*credentials*.json
+local.properties
+
+# OS
+.DS_Store
+Thumbs.db
