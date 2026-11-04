@@ -19,13 +19,17 @@ A Muse-style agent app for Android, open source:
 It is **not** a wrapper around one provider. The user chooses where the
 intelligence comes from.
 
-## 2. Providers — three ways to pay for intelligence
+## 2. Providers — custom API key first (DSN Relay PARKED)
 
-| Mode | How it works |
+> Decision 2026-11-04 (rezz): billing / DSN Relay is PARKED — later.
+> Priority now: the app builds, ships, and the AI can write code.
+> Provider focus for v0.2: **Custom API key only**.
+
+| Mode | Status |
 | --- | --- |
-| **DSN Relay (subscription, ours)** | One key from us. Our gateway routes to many models. Billed by us. |
-| **BYOK** | User pastes their own key: Anthropic, OpenAI, Gemini, OpenRouter, etc. They pay the provider directly. |
-| **Custom endpoint** | User sets base URL + key + model name. Any OpenAI-compatible (or Anthropic-compatible) endpoint works, including self-hosted / local servers. |
+| **Custom endpoint (PRIMARY)** | User sets base URL + key + model name. Any OpenAI-compatible endpoint, including self-hosted / local servers. Default provider for a new chat. |
+| **BYOK** | Anthropic, OpenAI, Gemini, OpenRouter clients already exist from v0.1 — keep working, not the focus. |
+| **DSN Relay (subscription, ours)** | **PARKED.** Do not build billing, do not build the relay, do not show it as usable. Keep the type in code but hidden/disabled in UI until rezz re-opens it. |
 
 Rules:
 
@@ -71,10 +75,21 @@ Rules:
 - Model picker per chat, encrypted key storage
 - Streaming responses, markdown + code blocks
 
-### v0.2 — Agent mode
-- Tool loop: list/read/write files in a project workspace, apply diffs
-- Project view: file tree, file viewer, diff preview before apply
-- Approval gate: agent proposes changes, user approves before files change
+### v0.2 — BUILD GREEN + Code editor + AI writes code (current)
+- **Fix CI first:** v0.1 CI failed — plugin `org.jetbrains.kotlin.plugin.compose`
+  v1.9.22 does not exist (that plugin only exists in Kotlin 2.0+). Fix by
+  upgrading Kotlin to 2.0.21 (compatible with AGP 8.2.2) or by removing the
+  plugin and using `kotlinCompilerExtensionVersion` the old way. CI must be
+  green and a debug APK artifact must exist before anything else ships.
+- **Code / text editor:** project file tree, open a file, edit text
+  (monospace, line numbers, save), create / rename / delete files.
+  Files live in the app's project workspace (Room metadata + files on disk).
+- **AI writes code:** in chat, the agent can create / edit project files.
+  Agent output is parsed for code blocks with a file path, shown as a diff
+  preview, and applied only after the user taps Approve. Every applied
+  change is listed in the project view.
+- **Custom API key only:** new chats default to Custom endpoint; DSN Relay
+  hidden/disabled in UI; no billing code.
 
 ### v0.3 — Builder
 - Prompt -> full Kotlin Compose project scaffold

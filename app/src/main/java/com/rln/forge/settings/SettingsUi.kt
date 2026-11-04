@@ -255,15 +255,19 @@ private fun ProviderAddDialog(
                     expanded = expanded,
                     onDismissRequest = { expanded = false }
                 ) {
-                    ProviderType.entries.forEach { type ->
-                        DropdownMenuItem(
-                            text = { Text(type.displayName) },
-                            onClick = {
-                                selected = type
-                                expanded = false
-                            }
-                        )
-                    }
+                    // DSN Relay is PARKED: it cannot be picked here.
+                    // The enum stays in code for when rezz re-opens it.
+                    ProviderType.entries
+                        .filter { it != ProviderType.DSN_RELAY }
+                        .forEach { type ->
+                            DropdownMenuItem(
+                                text = { Text(type.displayName) },
+                                onClick = {
+                                    selected = type
+                                    expanded = false
+                                }
+                            )
+                        }
                 }
             }
         },

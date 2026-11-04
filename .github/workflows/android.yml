@@ -5,7 +5,7 @@ name: Android
 # setup-gradle action provides Gradle 8.2 (required by AGP 8.2.2).
 on:
   push:
-    branches: ["main", "v01-chat-provider"]
+    branches: ["main", "v01-chat-provider", "v02-editor"]
   pull_request:
     branches: ["main"]
 

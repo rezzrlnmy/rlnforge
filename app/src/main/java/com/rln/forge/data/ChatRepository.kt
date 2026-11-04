@@ -107,11 +107,15 @@ class ChatRepository(private val db: AppDatabase) {
      * First-run seed: one template per provider type. The first provider in
      * the list (Custom, empty) is the default for new chats — no paid model
      * is ever pre-selected.
+     *
+     * DSN Relay is PARKED (rezz, 2026-11-04): the enum stays in code, but no
+     * template row is seeded and it cannot be picked in the UI.
      */
     suspend fun ensureSeeded() {
         if (db.providerDao().count() > 0) return
         val now = System.currentTimeMillis()
-        ProviderType.entries.forEachIndexed { index, type ->
+        ProviderType.entries.filter { it != ProviderType.DSN_RELAY }
+            .forEachIndexed { index, type ->
             db.providerDao().upsert(
                 ProviderEntity(
                     id = UUID.randomUUID().toString(),

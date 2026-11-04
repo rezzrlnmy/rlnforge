@@ -7,18 +7,24 @@ UI (Compose, Material 3)
   ChatScreen / ProjectScreen / SettingsScreen
     |
 ViewModels
+  ChatViewModel (chat + proposal Apply/Discard)
+  ProjectViewModel (projects + file editor)
+  SettingsViewModel (providers + test connection)
     |
-Agent loop (on-device Kotlin)
-  - builds prompt, calls provider, parses tool calls
-  - applies file diffs only after user approval
+Agent output -> files (on-device Kotlin, v0.2)
+  - CodeProposals.parseProposedChanges: fenced code block with a file
+    path in its header (```kotlin:path/to/File.kt) becomes a proposal
+  - Proposed change card: diff summary + Apply / Discard per file
+  - Apply writes the file only after the user taps it; Discard changes nothing
     |
 Providers
-  - OpenAI-compatible client (DSN Relay, OpenAI, OpenRouter, custom)
+  - OpenAI-compatible client (OpenAI, OpenRouter, Custom; DSN Relay PARKED)
   - Anthropic client
   - Gemini client
     |
 Storage
-  - Room: projects, chats, messages
+  - Room: chats, messages, providers, projects + project file metadata
+  - Files on disk: filesDir/projects/<projectId>/<path> (content, not Room)
   - EncryptedSharedPreferences: API keys
 ```
 

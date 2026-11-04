@@ -6,10 +6,12 @@ import androidx.lifecycle.viewModelScope
 import com.rln.forge.data.ChatEntity
 import com.rln.forge.data.ChatRepository
 import com.rln.forge.data.MessageEntity
+import com.rln.forge.projects.ProjectRepository
 import com.rln.forge.providers.ChatClientFactory
 import com.rln.forge.providers.ChatException
 import com.rln.forge.providers.ChatMessage
 import com.rln.forge.providers.ProviderConfig
+import com.rln.forge.providers.ProviderType
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,9 +20,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
+enum class ProposalStatus { PENDING, APPLIED, DISCARDED }
+
 class ChatViewModel(
     private val repository: ChatRepository,
-    private val clientFactory: ChatClientFactory
+    private val clientFactory: ChatClientFactory,
+    private val projectRepository: ProjectRepository
 ) : ViewModel() {
 
     val chats: Flow<List<ChatEntity>> = repository.observeChats()
@@ -37,6 +42,19 @@ class ChatViewModel(
 
     private val _sendError = MutableStateFlow<String?>(null)
     val sendError: StateFlow<String?> = _sendError.asStateFlow()
+
+    // Proposed file changes from the agent, keyed by "<messageId>::<path>".
+    // Nothing is written to disk until the user taps Apply on that card.
+    private val _proposalStatus = MutableStateFlow<Map<String, ProposalStatus>>(emptyMap())
+    val proposalStatus: StateFlow<Map<String, ProposalStatus>> =
+        _proposalStatus.asStateFlow()
+
+    private val _applyNotice = MutableStateFlow<String?>(null)
+    val applyNotice: StateFlow<String?> = _applyNotice.asStateFlow()
+
+    fun clearApplyNotice() {
+        _applyNotice.value = null
+    }
 
     private var streamJob: Job? = null
 
@@ -56,10 +74,33 @@ class ChatViewModel(
     fun newChat() {
         viewModelScope.launch {
             val providers = repository.observeProviders().first()
-            val default = providers.firstOrNull()
+            // Custom API key is the default — no paid model is ever pre-selected.
+            val default = providers.firstOrNull { it.type == ProviderType.CUSTOM }
+                ?: providers.firstOrNull()
             val chat = repository.createChat(default?.id, default?.model.orEmpty())
             _selectedChatId.value = chat.id
         }
+    }
+
+    /** Write a proposed file into the active project. Only ever called from Apply. */
+    fun applyProposal(messageId: String, proposal: ProposedChange) {
+        val key = "$messageId::${proposal.path}"
+        if (_proposalStatus.value[key] == ProposalStatus.APPLIED) return
+        viewModelScope.launch {
+            val project = projectRepository.ensureDefaultProject()
+            val ok = projectRepository.saveFile(project.id, proposal.path, proposal.content)
+            if (ok) {
+                _proposalStatus.value = _proposalStatus.value + (key to ProposalStatus.APPLIED)
+                _applyNotice.value = "Saved to ${proposal.path} in ${project.name}"
+            } else {
+                _applyNotice.value = "Could not save ${proposal.path}: unsafe path"
+            }
+        }
+    }
+
+    fun discardProposal(messageId: String, proposal: ProposedChange) {
+        val key = "$messageId::${proposal.path}"
+        _proposalStatus.value = _proposalStatus.value + (key to ProposalStatus.DISCARDED)
     }
 
     fun renameChat(chat: ChatEntity, title: String) {
@@ -156,11 +197,12 @@ class ChatViewModel(
 
     class Factory(
         private val repository: ChatRepository,
-        private val clientFactory: ChatClientFactory
+        private val clientFactory: ChatClientFactory,
+        private val projectRepository: ProjectRepository
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return ChatViewModel(repository, clientFactory) as T
+            return ChatViewModel(repository, clientFactory, projectRepository) as T
         }
     }
 }

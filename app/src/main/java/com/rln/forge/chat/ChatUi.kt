@@ -24,6 +24,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -31,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,7 +49,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rln.forge.data.ChatEntity
 import com.rln.forge.data.MessageEntity
+import com.rln.forge.projects.ProjectViewModel
 import com.rln.forge.providers.ProviderConfig
+import com.rln.forge.providers.ProviderType
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -161,6 +166,7 @@ fun ChatListScreen(
 @Composable
 fun ChatScreen(
     viewModel: ChatViewModel,
+    projectViewModel: ProjectViewModel,
     chatId: String,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit
@@ -171,15 +177,26 @@ fun ChatScreen(
     val providers by viewModel.providers.collectAsStateWithLifecycle(initialValue = emptyList())
     val isStreaming by viewModel.isStreaming.collectAsStateWithLifecycle()
     val sendError by viewModel.sendError.collectAsStateWithLifecycle()
+    val proposalStatus by viewModel.proposalStatus.collectAsStateWithLifecycle()
+    val applyNotice by viewModel.applyNotice.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
     var showModelPicker by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(messages.size, messages.lastOrNull()?.content?.length) {
         if (messages.isNotEmpty()) listState.scrollToItem(messages.size - 1)
     }
 
+    LaunchedEffect(applyNotice) {
+        applyNotice?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearApplyNotice()
+        }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -231,6 +248,22 @@ fun ChatScreen(
                         message = message,
                         onRetry = { viewModel.retry() }
                     )
+                    if (message.role == "assistant") {
+                        val proposals = remember(message.content) {
+                            parseProposedChanges(message.content)
+                        }
+                        proposals.forEach { proposal ->
+                            val key = "${message.id}::${proposal.path}"
+                            ProposedChangeCard(
+                                messageId = message.id,
+                                proposal = proposal,
+                                status = proposalStatus[key],
+                                projectViewModel = projectViewModel,
+                                onApply = { viewModel.applyProposal(message.id, proposal) },
+                                onDiscard = { viewModel.discardProposal(message.id, proposal) }
+                            )
+                        }
+                    }
                 }
             }
             Row(
@@ -307,6 +340,87 @@ private fun MessageBubble(message: MessageEntity, onRetry: () -> Unit) {
     }
 }
 
+/**
+ * One file the agent proposed to create or change.
+ *
+ * The file on disk is NEVER touched until the user taps Apply — the card
+ * only shows a summary. Discard hides the card and changes nothing.
+ */
+@Composable
+private fun ProposedChangeCard(
+    messageId: String,
+    proposal: ProposedChange,
+    status: ProposalStatus?,
+    projectViewModel: ProjectViewModel,
+    onApply: () -> Unit,
+    onDiscard: () -> Unit
+) {
+    val activeProjectId by projectViewModel.activeProjectId
+        .collectAsStateWithLifecycle()
+    val existingContent by produceState<String?>(
+        initialValue = null,
+        activeProjectId,
+        proposal.path
+    ) {
+        value = activeProjectId?.let { projectViewModel.readFileText(it, proposal.path) }
+    }
+    val summary = remember(proposal, existingContent) {
+        diffSummary(proposal, existingContent)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                MaterialTheme.colorScheme.surface,
+                RoundedCornerShape(12.dp)
+            )
+            .padding(12.dp)
+    ) {
+        Text(
+            "Proposed change",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            proposal.path,
+            fontFamily = FontFamily.Monospace,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text(
+            summary,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        when (status) {
+            ProposalStatus.APPLIED -> {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "Applied",
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            ProposalStatus.DISCARDED -> {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "Discarded",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            else -> {
+                Row(modifier = Modifier.padding(top = 8.dp)) {
+                    Button(onClick = onApply) { Text("Apply") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(onClick = onDiscard) { Text("Discard") }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun ModelPickerDialog(
     providers: List<ProviderConfig>,
@@ -315,19 +429,25 @@ private fun ModelPickerDialog(
     onDismiss: () -> Unit,
     onSave: (ProviderConfig, String) -> Unit
 ) {
-    var selectedId by remember { mutableStateOf(currentProviderId ?: providers.firstOrNull()?.id) }
+    // DSN Relay is PARKED: it is never offered as a model choice.
+    val visibleProviders = remember(providers) {
+        providers.filter { it.type != ProviderType.DSN_RELAY }
+    }
+    var selectedId by remember {
+        mutableStateOf(currentProviderId ?: visibleProviders.firstOrNull()?.id)
+    }
     var model by remember { mutableStateOf(currentModel) }
-    val selected = providers.firstOrNull { it.id == selectedId }
+    val selected = visibleProviders.firstOrNull { it.id == selectedId }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Model for this chat") },
         text = {
             Column {
-                if (providers.isEmpty()) {
+                if (visibleProviders.isEmpty()) {
                     Text("No providers yet. Add one in Providers first.")
                 }
-                providers.forEach { provider ->
+                visibleProviders.forEach { provider ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()

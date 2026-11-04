@@ -44,6 +44,30 @@ data class ProviderEntity(
     val createdAt: Long
 )
 
+/** A user project. Files live on disk; Room only stores metadata. */
+@Entity(tableName = "projects")
+data class ProjectEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val createdAt: Long,
+    val updatedAt: Long
+)
+
+/**
+ * Metadata for one file inside a project. The content lives on disk under
+ * filesDir/projects/<projectId>/<path> — never as a TEXT column, so large
+ * files do not bloat the database.
+ */
+@Entity(
+    tableName = "project_files",
+    primaryKeys = ["projectId", "path"]
+)
+data class ProjectFileEntity(
+    val projectId: String,
+    val path: String, // relative, slash-separated, no leading slash
+    val updatedAt: Long
+)
+
 @Dao
 interface ChatDao {
     @Query("SELECT * FROM chats ORDER BY updatedAt DESC")
@@ -84,6 +108,45 @@ interface MessageDao {
 }
 
 @Dao
+interface ProjectDao {
+    @Query("SELECT * FROM projects ORDER BY updatedAt DESC")
+    fun observeProjects(): Flow<List<ProjectEntity>>
+
+    @Query("SELECT * FROM projects WHERE id = :id")
+    suspend fun getProject(id: String): ProjectEntity?
+
+    @Query("SELECT * FROM projects ORDER BY updatedAt DESC LIMIT 1")
+    suspend fun getNewestProject(): ProjectEntity?
+
+    @Query("SELECT COUNT(*) FROM projects")
+    suspend fun countProjects(): Int
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(project: ProjectEntity)
+
+    @Query("DELETE FROM projects WHERE id = :id")
+    suspend fun deleteProject(id: String)
+
+    @Query("SELECT * FROM project_files WHERE projectId = :projectId ORDER BY path ASC")
+    fun observeFiles(projectId: String): Flow<List<ProjectFileEntity>>
+
+    @Query("SELECT * FROM project_files WHERE projectId = :projectId ORDER BY path ASC")
+    suspend fun getFiles(projectId: String): List<ProjectFileEntity>
+
+    @Query("SELECT * FROM project_files WHERE projectId = :projectId AND path = :path")
+    suspend fun getFile(projectId: String, path: String): ProjectFileEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertFile(file: ProjectFileEntity)
+
+    @Query("DELETE FROM project_files WHERE projectId = :projectId AND path = :path")
+    suspend fun deleteFile(projectId: String, path: String)
+
+    @Query("DELETE FROM project_files WHERE projectId = :projectId")
+    suspend fun deleteFilesForProject(projectId: String)
+}
+
+@Dao
 interface ProviderDao {
     @Query("SELECT * FROM providers ORDER BY createdAt ASC")
     fun observeProviders(): Flow<List<ProviderEntity>>
@@ -102,14 +165,21 @@ interface ProviderDao {
 }
 
 @Database(
-    entities = [ChatEntity::class, MessageEntity::class, ProviderEntity::class],
-    version = 1,
+    entities = [
+        ChatEntity::class,
+        MessageEntity::class,
+        ProviderEntity::class,
+        ProjectEntity::class,
+        ProjectFileEntity::class
+    ],
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun chatDao(): ChatDao
     abstract fun messageDao(): MessageDao
     abstract fun providerDao(): ProviderDao
+    abstract fun projectDao(): ProjectDao
 
     companion object {
         @Volatile
@@ -121,7 +191,12 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "rlnforge.db"
-                ).build().also { instance = it }
+                )
+                    // v0.1 never shipped an APK to a real user, so no real
+                    // user data exists to migrate — a destructive upgrade is
+                    // safe here. Do not keep this pattern once v0.2 ships.
+                    .fallbackToDestructiveMigration()
+                    .build().also { instance = it }
             }
         }
     }
