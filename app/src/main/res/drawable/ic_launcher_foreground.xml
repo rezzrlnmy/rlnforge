@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- rlnForge launcher foreground: simple geometric mark, guaranteed-valid paths only.
+     Amber disc + dark diamond + amber centre dot on the dark background colour.
+     108x108 viewport; foreground safe zone is the centre 66dp. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#E0A458"
+        android:pathData="M54,54 m-36,0 a36,36 0 1,0 72,0 a36,36 0 1,0 -72,0" />
+    <path
+        android:fillColor="#1F2933"
+        android:pathData="M54,30 L78,54 L54,78 L30,54 Z" />
+    <path
+        android:fillColor="#E0A458"
+        android:pathData="M54,54 m-10,0 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0" />
+</vector>
