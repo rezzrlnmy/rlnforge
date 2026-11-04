@@ -93,6 +93,7 @@ class ProjectFileStore(private val root: File) {
             .filter { it.isFile }
             .map { it.relativeTo(projectRoot).path.replace(File.separatorChar, '/') }
             .sorted()
+            .toList()
     }
 
     fun deleteProject(projectId: String) {
