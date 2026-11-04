@@ -22,7 +22,9 @@ data class ProposedChange(
 
 private val TEXT_EXTENSIONS = setOf(
     "kt", "kts", "java", "md", "txt", "json", "xml", "gradle",
-    "properties", "css", "html", "js", "ts", "csv", "yml", "yaml"
+    "properties", "css", "html", "js", "ts", "csv", "yml", "yaml",
+    "py", "go", "rs", "c", "h", "cpp", "cc", "hpp", "sh", "rb", "php",
+    "swift", "dart"
 )
 
 fun isTextFile(path: String): Boolean {
